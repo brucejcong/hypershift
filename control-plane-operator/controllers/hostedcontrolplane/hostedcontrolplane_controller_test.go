@@ -3,6 +3,8 @@ package hostedcontrolplane
 import (
 	"context"
 	"fmt"
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/ocm"
+	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 
@@ -139,6 +141,31 @@ spec:
 			}
 		})
 	}
+}
+
+func TestReconcileDeployments(t *testing.T) {
+	targetNamespace := "test"
+	ocmDeployment := manifests.OpenShiftControllerManagerDeployment(targetNamespace)
+	hcp := &hyperv1.HostedControlPlane{ObjectMeta: metav1.ObjectMeta{
+		Name:      "hcp",
+		Namespace: targetNamespace,
+	}}
+	hcp.Name = "name"
+	hcp.Namespace = "namespace"
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-ocm-config",
+			Namespace: targetNamespace,
+		},
+		Data: map[string]string{"config.yaml": "test-data"},
+	}
+	dc := config.DeploymentConfig{}
+	ownerRef := config.OwnerRefFrom(hcp)
+	err := ocm.ReconcileDeployment(ocmDeployment, ownerRef, "ocmImage", cm, dc)
+	assert.NoError(t, err)
+	assert.Equal(t, pointer.Int64(30), ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
+
 }
 
 func TestReconcileAPIServerService(t *testing.T) {
