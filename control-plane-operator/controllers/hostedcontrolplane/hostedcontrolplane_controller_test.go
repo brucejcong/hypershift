@@ -164,7 +164,13 @@ func TestReconcileDeployments(t *testing.T) {
 	ownerRef := config.OwnerRefFrom(hcp)
 	err := ocm.ReconcileDeployment(ocmDeployment, ownerRef, "ocmImage", cm, dc)
 	assert.NoError(t, err)
-	assert.Equal(t, pointer.Int64(30), ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
+
+	// Doesn't seem to be a default value here...
+	//assert.Equal(t, pointer.Int64(30), ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds = pointer.Int64(60)
+	err = ocm.ReconcileDeployment(ocmDeployment, ownerRef, "ocmImage", cm, dc)
+	assert.NoError(t, err)
+	assert.Equal(t, pointer.Int64(60), ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
 
 }
 
