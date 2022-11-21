@@ -4,6 +4,7 @@ import (
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
 	"github.com/openshift/hypershift/support/config"
+	"github.com/openshift/hypershift/support/util"
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -36,6 +37,9 @@ func TestReconcileDeployments(t *testing.T) {
 		cm                     corev1.ConfigMap
 		deploymentConfig       config.DeploymentConfig
 		expectedDeployStrategy appsv1.DeploymentStrategy
+		expectedSelector       metav1.LabelSelector
+		expectedObjMeta        metav1.ObjectMeta
+		expectedSpec           corev1.PodSpec
 	}{
 		// empty deployment config
 		{
@@ -54,16 +58,40 @@ func TestReconcileDeployments(t *testing.T) {
 					MaxUnavailable: &maxUnavailable,
 				},
 			},
+			expectedSelector: metav1.LabelSelector{
+				MatchLabels: openShiftControllerManagerLabels(),
+			},
+			expectedObjMeta: metav1.ObjectMeta{
+				Labels: openShiftControllerManagerLabels(),
+			},
+			expectedSpec: corev1.PodSpec{
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Containers: []corev1.Container{
+					util.BuildContainer(ocmContainerMain(), buildOCMContainerMain("ocmImage")),
+				},
+				Volumes: []corev1.Volume{
+					util.BuildVolume(ocmVolumeConfig(), buildOCMVolumeConfig),
+					util.BuildVolume(ocmVolumeServingCert(), buildOCMVolumeServingCert),
+					util.BuildVolume(ocmVolumeKubeconfig(), buildOCMVolumeKubeconfig),
+				},
+			},
 		},
 	}
 	for _, tc := range testCases {
 		err := ReconcileDeployment(ocmDeployment, ownerRef, "ocmImage", &tc.cm, tc.deploymentConfig)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.expectedDeployStrategy, ocmDeployment.Spec.Strategy)
-		ocmDeployment.Spec.Strategy.Type = "hello"
-		assert.NotEqual(t, tc.expectedDeployStrategy, ocmDeployment.Spec.Strategy)
+		assert.Equal(t, &tc.expectedSelector, ocmDeployment.Spec.Selector)
 
-		//
+		configBytes, _ := tc.cm.Data[configKey]
+		configHash := util.ComputeHash(configBytes)
+		tc.expectedObjMeta.Annotations = map[string]string{
+			configHashAnnotation: configHash,
+		}
+		assert.Equal(t, tc.expectedObjMeta, ocmDeployment.Spec.Template.ObjectMeta)
+		assert.Equal(t, tc.expectedSpec, ocmDeployment.Spec.Template.Spec)
+
+		// Check to see if other random values are changed.
 		ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds = pointer.Int64(60)
 		err = ReconcileDeployment(ocmDeployment, ownerRef, "ocmImage", &tc.cm, tc.deploymentConfig)
 		assert.NoError(t, err)
