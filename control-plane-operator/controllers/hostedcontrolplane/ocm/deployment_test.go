@@ -93,10 +93,10 @@ func TestReconcileDeployments(t *testing.T) {
 
 		// Check to see if other random values are changed.
 		ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds = pointer.Int64(60)
+		ocmDeployment.Spec.MinReadySeconds = int32(60)
 		err = ReconcileDeployment(ocmDeployment, ownerRef, "ocmImage", &tc.cm, tc.deploymentConfig)
 		assert.NoError(t, err)
 		assert.Equal(t, pointer.Int64(60), ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
-		assert.Equal(t, tc.expectedDeployStrategy, ocmDeployment.Spec.Strategy)
+		assert.Equal(t, int32(60), ocmDeployment.Spec.MinReadySeconds)
 	}
-
 }
