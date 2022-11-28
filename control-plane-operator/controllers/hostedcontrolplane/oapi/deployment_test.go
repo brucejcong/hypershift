@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestReconcileDeployments(t *testing.T) {
+func TestReconcileOpenshiftAPIServerDeployment(t *testing.T) {
 
 	imageName := "oapiImage"
 	// Setup expected values that are universal

@@ -1,24 +1,22 @@
-package clusterpolicy
+package konnectivity
 
 import (
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
 	"github.com/openshift/hypershift/support/config"
-	"github.com/openshift/hypershift/support/util"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
 	"testing"
 )
 
-func TestReconcileClusterPolicyDeployment(t *testing.T) {
+func TestReconcileKonnectivityAgentDeployment(t *testing.T) {
 
-	imageName := "clusterPolicyImage"
+	imageName := "konnectivity-agent-image"
 	// Setup expected values that are universal
 
 	// Setup hypershift hosted control plane.
 	targetNamespace := "test"
-	clusterPolicyDeployment := manifests.ClusterPolicyControllerDeployment(targetNamespace)
+	konnectivityAgentDeployment := manifests.KonnectivityAgentDeployment(targetNamespace)
 	hcp := &hyperv1.HostedControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "hcp",
@@ -31,18 +29,20 @@ func TestReconcileClusterPolicyDeployment(t *testing.T) {
 
 	testCases := []struct {
 		deploymentConfig config.DeploymentConfig
+		ips              []string
 	}{
 		// empty deployment config
 		{
 			deploymentConfig: config.DeploymentConfig{},
+			ips:              []string{"1.2.3.4"},
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := clusterPolicyDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := clusterPolicyDeployment.Spec.MinReadySeconds
-		err := ReconcileDeployment(clusterPolicyDeployment, ownerRef, imageName, tc.deploymentConfig, util.AvailabilityProberImageName, pointer.Int32(1234))
+		expectedTermGraceSeconds := konnectivityAgentDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
+		expectedMinReadySeconds := konnectivityAgentDeployment.Spec.MinReadySeconds
+		err := ReconcileAgentDeployment(konnectivityAgentDeployment, ownerRef, tc.deploymentConfig, imageName, tc.ips)
 		assert.NoError(t, err)
-		assert.Equal(t, expectedTermGraceSeconds, clusterPolicyDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
-		assert.Equal(t, expectedMinReadySeconds, clusterPolicyDeployment.Spec.MinReadySeconds)
+		assert.Equal(t, expectedTermGraceSeconds, konnectivityAgentDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
+		assert.Equal(t, expectedMinReadySeconds, konnectivityAgentDeployment.Spec.MinReadySeconds)
 	}
 }

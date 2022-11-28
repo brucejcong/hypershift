@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestReconcileDeployments(t *testing.T) {
+func TestReconcileOpenshiftControllerManagerDeployment(t *testing.T) {
 
 	// Setup expected values that are universal
 	imageName := "ocmImage"
