@@ -55,3 +55,39 @@ func TestReconcileOpenshiftAPIServerDeployment(t *testing.T) {
 		assert.Equal(t, expectedMinReadySeconds, oapiDeployment.Spec.MinReadySeconds)
 	}
 }
+
+func TestReconcileOpenshiftOAuthAPIServerDeployment(t *testing.T) {
+	// Setup expected values that are universal
+
+	// Setup hypershift hosted control plane.
+	targetNamespace := "test"
+	oauthAPIDeployment := manifests.OpenShiftOAuthAPIServerDeployment(targetNamespace)
+	hcp := &hyperv1.HostedControlPlane{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "hcp",
+			Namespace: targetNamespace,
+		},
+	}
+	hcp.Name = "name"
+	hcp.Namespace = "namespace"
+	ownerRef := config.OwnerRefFrom(hcp)
+
+	testCases := []struct {
+		deploymentConfig config.DeploymentConfig
+		params           OAuthDeploymentParams
+	}{
+		// empty deployment config and oauth params
+		{
+			deploymentConfig: config.DeploymentConfig{},
+			params:           OAuthDeploymentParams{},
+		},
+	}
+	for _, tc := range testCases {
+		expectedTermGraceSeconds := oauthAPIDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
+		expectedMinReadySeconds := oauthAPIDeployment.Spec.MinReadySeconds
+		err := ReconcileOAuthAPIServerDeployment(oauthAPIDeployment, ownerRef, &tc.params, pointer.Int32(1234))
+		assert.NoError(t, err)
+		assert.Equal(t, expectedTermGraceSeconds, oauthAPIDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
+		assert.Equal(t, expectedMinReadySeconds, oauthAPIDeployment.Spec.MinReadySeconds)
+	}
+}
