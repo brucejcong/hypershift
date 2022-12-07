@@ -47,8 +47,8 @@ func TestReconcileOpenshiftAPIServerDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := oapiDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := oapiDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileDeployment(oapiDeployment, ownerRef, &tc.cm, tc.deploymentConfig, imageName, "socks5ProxyImage", config.DefaultEtcdURL, util.AvailabilityProberImageName, pointer.Int32(1234))
 		assert.NoError(t, err)
 		assert.Equal(t, expectedTermGraceSeconds, oapiDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
@@ -83,8 +83,8 @@ func TestReconcileOpenshiftOAuthAPIServerDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := oauthAPIDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := oauthAPIDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileOAuthAPIServerDeployment(oauthAPIDeployment, ownerRef, &tc.params, pointer.Int32(1234))
 		assert.NoError(t, err)
 		assert.Equal(t, expectedTermGraceSeconds, oauthAPIDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)

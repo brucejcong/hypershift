@@ -38,8 +38,8 @@ func TestReconcileKonnectivityAgentDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := konnectivityAgentDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := konnectivityAgentDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileAgentDeployment(konnectivityAgentDeployment, ownerRef, tc.deploymentConfig, imageName, tc.ips)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedTermGraceSeconds, konnectivityAgentDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)

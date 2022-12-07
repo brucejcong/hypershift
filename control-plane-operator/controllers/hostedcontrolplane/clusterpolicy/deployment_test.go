@@ -38,8 +38,8 @@ func TestReconcileClusterPolicyDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := clusterPolicyDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := clusterPolicyDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileDeployment(clusterPolicyDeployment, ownerRef, imageName, tc.deploymentConfig, util.AvailabilityProberImageName, pointer.Int32(1234))
 		assert.NoError(t, err)
 		assert.Equal(t, expectedTermGraceSeconds, clusterPolicyDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)

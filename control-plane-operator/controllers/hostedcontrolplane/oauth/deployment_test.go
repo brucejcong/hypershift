@@ -56,8 +56,8 @@ func TestReconcileOauthDeployment(t *testing.T) {
 	for _, tc := range testCases {
 		ctx := context.Background()
 		fakeClient := fake.NewClientBuilder().WithScheme(api.Scheme).Build()
-		expectedTermGraceSeconds := oauthDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := oauthDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileDeployment(ctx, fakeClient, oauthDeployment, ownerRef, &tc.cm, imageName, tc.deploymentConfig, tc.params.IdentityProviders(), tc.params.OauthConfigOverrides,
 			tc.params.AvailabilityProberImage, pointer.Int32(1234), tc.params.NamedCertificates(), tc.params.Socks5ProxyImage, tc.params.NoProxy)
 		assert.NoError(t, err)

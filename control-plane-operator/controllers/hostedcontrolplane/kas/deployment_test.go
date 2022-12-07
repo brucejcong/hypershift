@@ -52,7 +52,7 @@ func TestReconcileKubeAPIServerDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedMinReadySeconds := kubeAPIDeployment.Spec.MinReadySeconds
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileKubeAPIServerDeployment(kubeAPIDeployment, hcp, ownerRef, tc.deploymentConfig, tc.params.NamedCertificates(), tc.params.CloudProvider,
 			tc.params.CloudProviderConfig, tc.params.CloudProviderCreds, tc.params.Images, &tc.cm, tc.params.AuditWebhookRef, tc.activeKey, tc.backupKey, tc.params.APIServerPort)
 		assert.NoError(t, err)

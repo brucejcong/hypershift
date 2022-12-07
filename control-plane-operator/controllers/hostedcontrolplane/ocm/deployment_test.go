@@ -45,8 +45,8 @@ func TestReconcileOpenshiftControllerManagerDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := ocmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := ocmDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileDeployment(ocmDeployment, ownerRef, imageName, &tc.cm, tc.deploymentConfig)
 		assert.NoError(t, err)
 

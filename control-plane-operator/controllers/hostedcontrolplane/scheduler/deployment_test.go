@@ -44,8 +44,8 @@ func TestReconcileSchedulerDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := schedulerDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := schedulerDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileDeployment(schedulerDeployment, ownerRef, tc.deploymentConfig, imageName,
 			tc.params.FeatureGates(), tc.params.SchedulerPolicy(), tc.params.AvailabilityProberImage,
 			pointer.Int32(1234), tc.params.CipherSuites(), tc.params.MinTLSVersion(), tc.params.DisableProfiling)

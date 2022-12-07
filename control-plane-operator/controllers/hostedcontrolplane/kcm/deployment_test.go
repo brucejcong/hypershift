@@ -96,8 +96,8 @@ func TestKubeControllerManagerDeployment(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		expectedTermGraceSeconds := kcmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds
-		expectedMinReadySeconds := kcmDeployment.Spec.MinReadySeconds
+		var expectedTermGraceSeconds *int64 = nil
+		var expectedMinReadySeconds int32 = 0
 		err := ReconcileDeployment(kcmDeployment, &tc.cm, nil, &tc.params, pointer.Int32(1234))
 		assert.NoError(t, err)
 		assert.Equal(t, expectedTermGraceSeconds, kcmDeployment.Spec.Template.Spec.TerminationGracePeriodSeconds)
