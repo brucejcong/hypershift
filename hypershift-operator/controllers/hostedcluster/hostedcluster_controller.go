@@ -312,6 +312,48 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Request, log logr.Logger, hcluster *hyperv1.HostedCluster) (ctrl.Result, error) {
+	controlPlaneNamespace := manifests.HostedControlPlaneNamespace(hcluster.Namespace, hcluster.Name)
+	hcp := controlplaneoperator.HostedControlPlane(controlPlaneNamespace.Name, hcluster.Name)
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(hcp), hcp)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("failed to get hostedcontrolplane: %w", err)
+		} else {
+			hcp = nil
+		}
+	}
+
+	// Bubble up ValidIdentityProvider condition from the hostedControlPlane.
+	// We set this condition even if the HC is being deleted. Otherwise, a hostedCluster with a conflicted identity provider
+	// would fail to complete deletion forever with no clear signal for consumers.
+	{
+		freshCondition := &metav1.Condition{
+			Type:               string(hyperv1.ValidAWSIdentityProvider),
+			Status:             metav1.ConditionUnknown,
+			Reason:             hyperv1.StatusUnknownReason,
+			ObservedGeneration: hcluster.Generation,
+		}
+		if hcp != nil {
+			validIdentityProviderCondition := meta.FindStatusCondition(hcp.Status.Conditions, string(hyperv1.ValidAWSIdentityProvider))
+			if validIdentityProviderCondition != nil {
+				freshCondition = validIdentityProviderCondition
+			}
+		}
+
+		oldCondition := meta.FindStatusCondition(hcluster.Status.Conditions, string(hyperv1.ValidAWSIdentityProvider))
+		if oldCondition == nil || oldCondition.Status != freshCondition.Status {
+			freshCondition.ObservedGeneration = hcluster.Generation
+			meta.SetStatusCondition(&hcluster.Status.Conditions, *freshCondition)
+			// Persist status updates
+			if err := r.Client.Status().Update(ctx, hcluster); err != nil {
+				if apierrors.IsConflict(err) {
+					return ctrl.Result{Requeue: true}, nil
+				}
+				return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
+			}
+		}
+	}
+
 	// If deleted, clean up and return early.
 	if !hcluster.DeletionTimestamp.IsZero() {
 		// Keep trying to delete until we know it's safe to finalize.
@@ -375,17 +417,6 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 			}
 		} else {
 			hcluster.Status.KubeadminPassword = &corev1.LocalObjectReference{Name: kubeadminPasswordSecret.Name}
-		}
-	}
-
-	controlPlaneNamespace := manifests.HostedControlPlaneNamespace(hcluster.Namespace, hcluster.Name)
-	hcp := controlplaneoperator.HostedControlPlane(controlPlaneNamespace.Name, hcluster.Name)
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(hcp), hcp)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, fmt.Errorf("failed to get hostedcontrolplane: %w", err)
-		} else {
-			hcp = nil
 		}
 	}
 
@@ -894,7 +925,7 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 	_, ignitionServerHasHealthzHandler := hyperutil.ImageLabels(controlPlaneOperatorImageMetadata)[ignitionServerHealthzHandlerLabel]
 	_, controlplaneOperatorManagesIgnitionServer := hyperutil.ImageLabels(controlPlaneOperatorImageMetadata)[controlplaneOperatorManagesIgnitionServerLabel]
 
-	p, err := platform.GetPlatform(hcluster, utilitiesImage, pullSecretBytes)
+	p, err := platform.GetPlatform(hcluster, r.ReleaseProvider, utilitiesImage, pullSecretBytes)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1601,15 +1632,17 @@ func (r *HostedClusterReconciler) reconcileCAPIManager(ctx context.Context, crea
 	}
 
 	// Reconcile CAPI manager deployment
-	capiImage, err := hyperutil.GetPayloadImage(ctx, hcluster, ImageStreamCAPI, pullSecretBytes)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve capi image: %w", err)
-	}
+	var capiImage string
 	if envImage := os.Getenv(images.CAPIEnvVar); len(envImage) > 0 {
 		capiImage = envImage
 	}
 	if _, ok := hcluster.Annotations[hyperv1.ClusterAPIManagerImage]; ok {
 		capiImage = hcluster.Annotations[hyperv1.ClusterAPIManagerImage]
+	}
+	if capiImage == "" {
+		if capiImage, err = hyperutil.GetPayloadImage(ctx, r.ReleaseProvider, hcluster, ImageStreamCAPI, pullSecretBytes); err != nil {
+			return fmt.Errorf("failed to retrieve capi image: %w", err)
+		}
 	}
 	capiManagerDeployment := clusterapi.ClusterAPIManagerDeployment(controlPlaneNamespace.Name)
 	_, err = createOrUpdate(ctx, r.Client, capiManagerDeployment, func() error {
@@ -1850,7 +1883,7 @@ func servicePublishingStrategyByType(hcp *hyperv1.HostedCluster, svcType hyperv1
 // both the HostedCluster and the HostedControlPlane which the autoscaler takes
 // inputs from.
 func (r *HostedClusterReconciler) reconcileAutoscaler(ctx context.Context, createOrUpdate upsert.CreateOrUpdateFN, hcluster *hyperv1.HostedCluster, hcp *hyperv1.HostedControlPlane, utilitiesImage string, pullSecretBytes []byte) error {
-	clusterAutoscalerImage, err := hyperutil.GetPayloadImage(ctx, hcluster, ImageStreamAutoscalerImage, pullSecretBytes)
+	clusterAutoscalerImage, err := hyperutil.GetPayloadImage(ctx, r.ReleaseProvider, hcluster, ImageStreamAutoscalerImage, pullSecretBytes)
 	if err != nil {
 		return fmt.Errorf("failed to get image for machine approver: %w", err)
 	}
@@ -2927,7 +2960,7 @@ func (r *HostedClusterReconciler) delete(ctx context.Context, hc *hyperv1.Hosted
 	}
 
 	// Cleanup Platform specifics.
-	p, err := platform.GetPlatform(hc, "", nil)
+	p, err := platform.GetPlatform(hc, nil, "", nil)
 	if err != nil {
 		return false, err
 	}
@@ -3087,7 +3120,7 @@ func (r *HostedClusterReconciler) reconcileClusterPrometheusRBAC(ctx context.Con
 }
 
 func (r *HostedClusterReconciler) reconcileMachineApprover(ctx context.Context, createOrUpdate upsert.CreateOrUpdateFN, hcluster *hyperv1.HostedCluster, hcp *hyperv1.HostedControlPlane, utilitiesImage string, pullSecretBytes []byte) error {
-	machineApproverImage, err := hyperutil.GetPayloadImage(ctx, hcluster, ImageStreamClusterMachineApproverImage, pullSecretBytes)
+	machineApproverImage, err := hyperutil.GetPayloadImage(ctx, r.ReleaseProvider, hcluster, ImageStreamClusterMachineApproverImage, pullSecretBytes)
 	if err != nil {
 		return fmt.Errorf("failed to get image for machine approver: %w", err)
 	}
