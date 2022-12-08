@@ -103,6 +103,7 @@ func ReconcileDeployment(deployment *appsv1.Deployment, ownerRef config.OwnerRef
 	}
 	deployment.Spec.Template.Annotations[configHashAnnotation] = configHash
 
+<<<<<<< HEAD
 	deployment.Spec.Template.Spec = corev1.PodSpec{
 		AutomountServiceAccountToken: pointer.BoolPtr(false),
 		InitContainers:               []corev1.Container{util.BuildContainer(oasTrustAnchorGenerator(), buildOASTrustAnchorGenerator(image))},
@@ -133,6 +134,35 @@ func ReconcileDeployment(deployment *appsv1.Deployment, ownerRef config.OwnerRef
 				}
 			}),
 		},
+=======
+	deployment.Spec.Template.Spec.AutomountServiceAccountToken = pointer.BoolPtr(false)
+	deployment.Spec.Template.Spec.InitContainers = []corev1.Container{util.BuildContainer(oasTrustAnchorGenerator(), buildOASTrustAnchorGenerator(image))}
+	deployment.Spec.Template.Spec.Containers = []corev1.Container{
+		util.BuildContainer(oasContainerMain(), buildOASContainerMain(image, strings.Split(etcdUrlData.Host, ":")[0], defaultOAPIPort)),
+		util.BuildContainer(oasSocks5ProxyContainer(), buildOASSocks5ProxyContainer(socks5ProxyImage)),
+	}
+	deployment.Spec.Template.Spec.Volumes = []corev1.Volume{
+		util.BuildVolume(oasVolumeWorkLogs(), buildOASVolumeWorkLogs),
+		util.BuildVolume(oasVolumeConfig(), buildOASVolumeConfig),
+		util.BuildVolume(oasVolumeAuditConfig(), buildOASVolumeAuditConfig),
+		util.BuildVolume(common.VolumeAggregatorCA(), common.BuildVolumeAggregatorCA),
+		util.BuildVolume(oasVolumeEtcdClientCA(), buildOASVolumeEtcdClientCA),
+		util.BuildVolume(common.VolumeTotalClientCA(), common.BuildVolumeTotalClientCA),
+		util.BuildVolume(oasVolumeKubeconfig(), buildOASVolumeKubeconfig),
+		util.BuildVolume(oasVolumeServingCert(), buildOASVolumeServingCert),
+		util.BuildVolume(oasVolumeEtcdClientCert(), buildOASVolumeEtcdClientCert),
+		util.BuildVolume(oasVolumeKonnectivityProxyCert(), buildOASVolumeKonnectivityProxyCert),
+		util.BuildVolume(oasTrustAnchorVolume(), func(v *corev1.Volume) { v.EmptyDir = &corev1.EmptyDirVolumeSource{} }),
+		util.BuildVolume(serviceCASignerVolume(), func(v *corev1.Volume) {
+			v.ConfigMap = &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: manifests.ServiceServingCA(deployment.Namespace).Name}}
+		}),
+		util.BuildVolume(pullSecretVolume(), func(v *corev1.Volume) {
+			v.Secret = &corev1.SecretVolumeSource{
+				SecretName: common.PullSecret(deployment.Namespace).Name,
+				Items:      []corev1.KeyToPath{{Key: ".dockerconfigjson", Path: "config.json"}},
+			}
+		}),
+>>>>>>> c6046c05 (Added regression tests to ensure certain deployment fields do not get set)
 	}
 
 	util.AvailabilityProber(kas.InClusterKASReadyURL(deployment.Namespace, apiPort), availabilityProberImage, &deployment.Spec.Template.Spec)
