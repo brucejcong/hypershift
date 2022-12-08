@@ -678,10 +678,16 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 				Type:               string(hyperv1.ValidReleaseImage),
 				ObservedGeneration: hcluster.Generation,
 			}
-			if err := r.validateReleaseImage(ctx, hcluster); err != nil {
+			err := r.validateReleaseImage(ctx, hcluster)
+			if err != nil {
 				condition.Status = metav1.ConditionFalse
 				condition.Message = err.Error()
-				condition.Reason = hyperv1.InvalidImageReason
+
+				if apierrors.IsNotFound(err) {
+					condition.Reason = hyperv1.SecretNotFoundReason
+				} else {
+					condition.Reason = hyperv1.InvalidImageReason
+				}
 			} else {
 				condition.Status = metav1.ConditionTrue
 				condition.Message = "Release image is valid"
@@ -771,6 +777,9 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 		}
 		validReleaseImage := meta.FindStatusCondition(hcluster.Status.Conditions, string(hyperv1.ValidReleaseImage))
 		if validReleaseImage != nil && validReleaseImage.Status == metav1.ConditionFalse {
+			if validReleaseImage.Reason == hyperv1.SecretNotFoundReason {
+				return ctrl.Result{}, fmt.Errorf(validReleaseImage.Message)
+			}
 			log.Error(fmt.Errorf("release image is invalid"), "reconciliation is blocked", "message", validReleaseImage.Message)
 			return ctrl.Result{}, nil
 		}
@@ -2257,6 +2266,31 @@ func reconcileControlPlaneOperatorRole(role *rbacv1.Role) error {
 			Resources: []string{"virtualmachines", "virtualmachineinstances"},
 			Verbs:     []string{rbacv1.VerbAll},
 		},
+		{
+			APIGroups: []string{
+				"cdi.kubevirt.io",
+			},
+			Resources: []string{
+				"datavolumes",
+			},
+			Verbs: []string{
+				"get",
+				"create",
+				"delete",
+			},
+		},
+		{
+			APIGroups: []string{
+				"subresources.kubevirt.io",
+			},
+			Resources: []string{
+				"virtualmachineinstances/addvolume",
+				"virtualmachineinstances/removevolume",
+			},
+			Verbs: []string{
+				"update",
+			},
+		},
 	}
 	return nil
 }
@@ -3159,6 +3193,10 @@ func (r *HostedClusterReconciler) validateConfigAndClusterCapabilities(ctx conte
 		errs = append(errs, fmt.Errorf("invalid service account signing key: %w", err))
 	}
 
+	if err := r.validateAWSConfig(hc); err != nil {
+		errs = append(errs, err)
+	}
+
 	if err := r.validateAzureConfig(ctx, hc); err != nil {
 		errs = append(errs, err)
 	}
@@ -3244,6 +3282,73 @@ func isProgressing(ctx context.Context, hc *hyperv1.HostedCluster) (bool, error)
 
 	// cluster is conditions are good and is at desired release
 	return false, nil
+}
+
+// validateAWSConfig validates all serviceTypes have a supported servicePublishingStrategy.
+// All endpoints but the KAS should be exposed as Routes. KAS can be Route or Load Balancer.
+//
+// Depending on the awsEndpointAccessType, the routes will be exposed through a HCP router exposed via load balancer external or internal,
+// or through the management cluster ingress.
+// 1 - When Public
+//		If the HO has external DNS support:
+// 			All serviceTypes including KAS should be Routes (with RoutePublishingStrategy.hostname != "").
+// 			They will be exposed through a common HCP router exposed via Service type LB external.
+//		If the HO has no external DNS support:
+//			The KAS serviceType should be LoadBalancer. It will be exposed through a dedicated Service type LB external.
+// 			All other serviceTypes should be Routes. They will be exposed by the management cluster default ingress.
+// 2 - When PublicAndPrivate
+//		If the HO has external DNS support:
+// 			All serviceTypes including KAS should be Routes (with RoutePublishingStrategy.hostname != "").
+// 			They will be exposed through a common HCP router exposed via both Service type LB internal and external.
+//		If the HO has no external DNS support:
+//			The KAS serviceType should be LoadBalancer. It will be exposed through a dedicated Service type LB external.
+// 			All other serviceTypes should be Routes. They will be exposed by a common HCP router is exposed via Service type LB internal.
+// 3 - When Private
+//		The KAS serviceType should be Route or Load balancer. TODO (alberto): remove Load balancer choice for private.
+// 		All other serviceTypes should be Routes. They will be exposed by a common HCP router exposed via Service type LB internal.
+func (r *HostedClusterReconciler) validateAWSConfig(hc *hyperv1.HostedCluster) error {
+	if hc.Spec.Platform.Type != hyperv1.AWSPlatform {
+		return nil
+	}
+
+	if hc.Spec.Platform.AWS == nil {
+		return errors.New("aws cluster needs .spec.platform.aws to be filled")
+	}
+
+	var errs []error
+	for _, serviceType := range []hyperv1.ServiceType{
+		hyperv1.Konnectivity,
+		hyperv1.OAuthServer,
+		hyperv1.OVNSbDb,
+		hyperv1.Ignition,
+	} {
+		servicePublishingStrategy := hyperutil.ServicePublishingStrategyByTypeByHC(hc, serviceType)
+		if servicePublishingStrategy == nil {
+			errs = append(errs, fmt.Errorf("service type %v not found", serviceType))
+		}
+
+		if servicePublishingStrategy != nil && servicePublishingStrategy.Type != hyperv1.Route {
+			errs = append(errs, fmt.Errorf("service type %v with publishing strategy %v is not supported, use Route", serviceType, servicePublishingStrategy.Type))
+		}
+	}
+
+	servicePublishingStrategy := hyperutil.ServicePublishingStrategyByTypeByHC(hc, hyperv1.APIServer)
+	if servicePublishingStrategy == nil {
+		errs = append(errs, fmt.Errorf("service type %v not found", hyperv1.APIServer))
+	}
+
+	if hc.Spec.Platform.AWS.EndpointAccess == hyperv1.Private {
+		if servicePublishingStrategy != nil && servicePublishingStrategy.Type != hyperv1.Route && servicePublishingStrategy.Type != hyperv1.LoadBalancer {
+			errs = append(errs, fmt.Errorf("service type %v with publishing strategy %v", hyperv1.APIServer, servicePublishingStrategy.Type))
+		}
+
+	} else {
+		if !hyperutil.UseDedicatedDNSForKASByHC(hc) && servicePublishingStrategy.Type != hyperv1.LoadBalancer {
+			errs = append(errs, fmt.Errorf("service type %v with publishing strategy %v is not supported, use Route", hyperv1.APIServer, servicePublishingStrategy.Type))
+		}
+	}
+
+	return utilerrors.NewAggregate(errs)
 }
 
 func (r *HostedClusterReconciler) validateAzureConfig(ctx context.Context, hc *hyperv1.HostedCluster) error {
